@@ -4,9 +4,9 @@ Detects go-arounds at Chicago O'Hare (KORD) from public ADS-B data, attaches the
 weather in effect, infers a *likely* contributing factor with simple rules, and
 shows it all in a Streamlit dashboard.
 
-> **Status:** dashboard and draft rules are built. The data collector is being set
-> up, so the dashboard currently runs on **demo data** (randomly generated, and
-> clearly labelled as fake).
+> **Status:** dashboard, draft rules and data fetcher are built; the fetcher is being
+> deployed. Until detection runs on real data, the dashboard shows **demo data**
+> (randomly generated, and clearly labelled as fake).
 
 ## Quick start (demo)
 
@@ -22,7 +22,7 @@ When `data/tracker.db` (real data) exists, the dashboard uses it automatically.
 
 | Step | Script | What it does |
 |---|---|---|
-| 1 | `collector.py` | Polls the OpenSky Network API every 30 s for aircraft around ORD, stores positions in SQLite (`data/raw.db`). Runs as a service on a free Google Cloud VM (`deploy/install_vm.sh`); `status.py` is the health check. |
+| 1 | `fetch_adsblol.py` | Each day, streams adsb.lol's public flight-history archive and keeps every position inside a box around ORD below 15,000 ft (about 1 point per second near the airport) in SQLite (`data/raw.db`). Runs daily on a free Google Cloud VM (`deploy/install_vm.sh`); `status.py` is the health check. `collector.py` (live OpenSky polling) is kept for running at home, since OpenSky blocks cloud servers. |
 | 2 | `detect.py` | Rebuilds flights and detects go-arounds with the `traffic` library; counts arrivals for rates. *(to build)* |
 | 3 | `weather.py` | Attaches the KORD METAR in effect at each go-around (Iowa Environmental Mesonet). *(to build)* |
 | 4 | `classify.py` | Rule-based likely contributing factor + confidence + evidence. *(draft thresholds)* |
@@ -32,7 +32,8 @@ Shared pieces: `config.py` (paths, airport facts, labels), `airlines.py`
 (callsign → airline), `db.py` (database tables and loaders).
 
 ## Data sources
-- **OpenSky Network** REST API: aircraft state vectors (position, altitude, speed).
+- **adsb.lol** daily history archive (main source): aircraft tracks from a community network of ADS-B receivers. Data © adsb.lol contributors, [Open Database License (ODbL) 1.0](https://opendatacommons.org/licenses/odbl/1-0/).
+- **OpenSky Network** REST API (optional, `collector.py`): live state vectors; blocked from cloud servers, usable from a home machine.
 - **Iowa Environmental Mesonet**: archived KORD METAR/SPECI reports.
 
 ## How go-arounds are detected
@@ -51,8 +52,8 @@ These are **not official causes**. Only ATC and the crew know why a go-around wa
 Thresholds are drafts until justified (see the top of `classify.py`).
 
 ## Known limitations
-- Positions are sampled every ~30 s, so the go-around point is approximate (±30 s).
-- ADS-B coverage near the ground is patchy, so "runway occupied" is capped at medium confidence.
+- Coverage depends on adsb.lol's volunteer receivers; near ORD it is dense (~1 s between points), but gaps are possible.
+- Positions are stored at 1-second resolution; "runway occupied" stays capped at medium confidence until checked against real events.
 - Missed go-arounds can't be measured (no public ground truth); only precision is measured.
 - Groundspeed includes wind, so "high-energy approach" is a weak signal.
 - METAR wind is true north and runway numbers are magnetic (a few degrees apart at ORD).

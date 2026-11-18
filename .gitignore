@@ -4,6 +4,7 @@ credentials.json
 
 # Raw collector database (large; lives on the VM and in backups)
 data/raw*.db
+data/*.lock
 
 # Generated fake data (anyone can rebuild it with make_demo_data.py)
 data/demo.db

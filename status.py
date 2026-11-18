@@ -33,12 +33,20 @@ def main():
     total = conn.execute("SELECT COUNT(*) FROM states").fetchone()[0]
     conn.close()
 
+    # adsb.lol archive days (the main data source on the VM)
+    days = sorted(k.removeprefix("adsblol_done_") for k in meta if k.startswith("adsblol_done_"))
+    if days:
+        print(f"adsb.lol days fetched: {len(days)}  (first {days[0]}, latest {days[-1]})")
+        latest = datetime.fromisoformat(days[-1]).date()
+        behind = (datetime.now(timezone.utc).date() - latest).days
+        print("Archive status       : " + ("OK" if behind <= 2 else f"PROBLEM: latest day is {behind} days old"))
+
     last = meta.get("last_success_utc")
     if last:
         age_min = (datetime.now(timezone.utc) - datetime.fromisoformat(last.replace("Z", "+00:00"))).total_seconds() / 60
         health = "OK" if age_min < 5 else "PROBLEM: no successful poll recently"
         print(f"Last successful poll : {last}  ({age_min:.0f} min ago)  -> {health}")
-    else:
+    elif not days:
         print("Last successful poll : never")
 
     db_mb = RAW_DB.stat().st_size / 1e6
