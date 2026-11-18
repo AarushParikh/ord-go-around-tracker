@@ -8,8 +8,8 @@ publishes every aircraft track it saw each day on GitHub, openly licensed
 per second, versus every 30 s when polling OpenSky.
 
 How it works for one day:
-  1. Stream that day's archive (~3.5 GB, split into parts) straight from
-     GitHub. Nothing big is saved to disk.
+  1. Download that day's archive (~4 GB, split into parts) to disk, then
+     delete it once processed.
   2. The archive holds one file per aircraft. For each, keep only the points
      inside the ORD box and below 15,000 ft (or on the ground).
   3. Save those points to data/raw.db (same `states` table as collector.py,
@@ -77,41 +77,61 @@ def part_names():
             yield first + second
 
 
-class ArchiveStream:
-    """A file-like object that reads each archive part in turn, so Python's
-    tarfile module sees one continuous file without anything saved to disk."""
+def download_parts(tag: str, year: int, folder) -> list:
+    """Download every part of a day's archive to disk, retrying each part up to 3 times.
 
-    def __init__(self, url_for_part):
-        self.url_for_part = url_for_part
-        self.parts = part_names()
-        self.current = None
-        self.finished = False
+    Downloading first (fast) and processing afterwards (slow) matters: GitHub
+    drops connections that stay open for a long time, which happened when the
+    slow VM read the archive straight from the network.
+    """
+    folder.mkdir(parents=True, exist_ok=True)
+    paths = []
+    for name in part_names():
+        url = ARCHIVE.format(year=year, tag=tag, part=name)
+        path = folder / f"part.{name}"
+        for attempt in range(1, 4):
+            try:
+                with urllib.request.urlopen(url, timeout=120) as r, open(path, "wb") as out:
+                    while chunk := r.read(1 << 20):
+                        out.write(chunk)
+                break
+            except urllib.error.HTTPError as e:
+                if e.code == 404:
+                    path.unlink(missing_ok=True)
+                    return paths  # no more parts
+                if attempt == 3:
+                    raise
+            except OSError:
+                if attempt == 3:
+                    raise
+            log.info("  retrying download of part %s (attempt %d)", name, attempt + 1)
+            time.sleep(30)
+        paths.append(path)
+        log.info("  downloaded part %s (%.1f GB)", name, path.stat().st_size / 1e9)
+    return paths
+
+
+class PartsReader:
+    """Reads the downloaded parts one after another, as if they were one file,
+    so Python's tarfile module can unpack the split archive."""
+
+    def __init__(self, paths):
+        self.files = [open(p, "rb") for p in paths]
+        self.index = 0
         self.bytes_read = 0
-        self._open_next()
-
-    def _open_next(self):
-        name = next(self.parts)
-        try:
-            self.current = urllib.request.urlopen(self.url_for_part(name), timeout=120)
-        except urllib.error.HTTPError as e:
-            if e.code == 404:
-                self.finished = True  # no more parts
-                self.current = None
-                return
-            raise
 
     def read(self, size=-1):
         chunks = []
-        while not self.finished and (size < 0 or size > 0):
-            data = self.current.read(size if size > 0 else 1 << 20)
+        while self.index < len(self.files) and (size < 0 or size > 0):
+            data = self.files[self.index].read(size if size > 0 else 1 << 20)
             if data:
                 chunks.append(data)
                 self.bytes_read += len(data)
                 if size > 0:
                     size -= len(data)
             else:
-                self.current.close()
-                self._open_next()
+                self.files[self.index].close()
+                self.index += 1
         return b"".join(chunks)
 
 
@@ -175,8 +195,10 @@ def trace_rows(d: dict) -> list[tuple]:
 def fetch_day(day: date, conn) -> dict:
     tag = find_tag(day)
     log.info("Fetching %s (%s)", day, tag)
-    stream = ArchiveStream(lambda part: ARCHIVE.format(year=day.year, tag=tag, part=part))
     started = time.time()
+    download_dir = RAW_DB.parent / f"download_{day}"
+    parts = download_parts(tag, day.year, download_dir)
+    stream = PartsReader(parts)
     n_files = n_aircraft = n_rows = 0
     before = conn.total_changes
     # Clear any half-finished earlier attempt for this day, so reruns are clean.
@@ -213,6 +235,9 @@ def fetch_day(day: date, conn) -> dict:
                 conn.commit()
                 log.info("  ...%d aircraft files read (%.1f GB)", n_files, stream.bytes_read / 1e9)
 
+    for path in parts:  # free the ~4 GB of disk space
+        path.unlink(missing_ok=True)
+    download_dir.rmdir()
     saved = conn.total_changes - before
     set_meta(conn, f"adsblol_done_{day}", tag)
     conn.commit()
