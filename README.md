@@ -37,9 +37,20 @@ Shared pieces: `config.py` (paths, airport facts, labels), `airlines.py`
 - **Iowa Environmental Mesonet**: archived KORD METAR/SPECI reports.
 
 ## How go-arounds are detected
-*(Fill in after Block 4.)* Summary: an approach aligned with a runway, followed
-by a climb, followed by a second approach, using `traffic`'s `go_around()`.
-Detection precision: **TBD**, measured by manually reviewing ~30 events.
+`detect.py`, one day at a time:
+1. Split each aircraft's positions into flights (a 20-minute gap starts a new flight).
+2. Keep flights that start in the air (arrivals); skip departures and taxiing.
+3. Find where each flight was lined up with an ORD runway (`traffic`'s `aligned_on_ils`).
+   An approach that ends on the ground is an **arrival** (the denominator for rates).
+4. Flights with two or more approaches are checked with `traffic`'s built-in
+   `go_around("KORD")`: two landing attempts with a climb in between.
+5. The go-around point is the lowest point of the aborted approach. The "aircraft ahead"
+   is the last arrival on the same runway; spacing is measured when it touched down.
+
+Test day (Nov 16, 2026): 1,327 arrivals, 4 go-arounds.
+Detection precision: **TBD**, measured by manually reviewing ~30 events
+(`python detect.py --plots 30`, fill in `data/verify/verify.csv`, then
+`python detect.py --apply-verification data/verify/verify.csv`).
 
 ## How factors are inferred
 `classify.py` checks the evidence in priority order (windshear reported → runway
@@ -56,5 +67,7 @@ Thresholds are drafts until justified (see the top of `classify.py`).
 - Positions are stored at 1-second resolution; "runway occupied" stays capped at medium confidence until checked against real events.
 - Missed go-arounds can't be measured (no public ground truth); only precision is measured.
 - Groundspeed includes wind, so "high-energy approach" is a weak signal.
+- ADS-B barometric altitude is pressure altitude (29.92 inHg), not corrected for the day's pressure, so go-around heights can be off by a few hundred feet until corrected with the METAR altimeter setting.
+- "Runway occupied" is inferred: the aircraft ahead touched down 0-90 s before the go-around and hadn't slowed below 30 kt. There is no runway-exit data.
 - METAR wind is true north and runway numbers are magnetic (a few degrees apart at ORD).
 - Sample sizes per airline/runway are small; airlines under 500 arrivals are hidden from rate charts.
