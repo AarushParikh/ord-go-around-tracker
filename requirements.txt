@@ -1,9 +1,12 @@
-# Dashboard + rules (what exists so far)
+# Dashboard + rules
 streamlit>=1.40
-pandas>=2.2
+pandas>=2.2,<3     # traffic doesn't support pandas 3 yet
 altair>=5
 pydeck>=0.9
 
+# Go-around detection (detect.py) — run on your laptop, too heavy for the free VM
+traffic>=2.13
+matplotlib>=3.8    # verification plots
+
 # Added in later blocks:
-# traffic         -> detect.py (go-around detection; laptop only, too heavy for the free VM)
 # python-metar    -> weather.py (METAR parsing)

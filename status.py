@@ -39,7 +39,19 @@ def main():
         print(f"adsb.lol days fetched: {len(days)}  (first {days[0]}, latest {days[-1]})")
         latest = datetime.fromisoformat(days[-1]).date()
         behind = (datetime.now(timezone.utc).date() - latest).days
-        print("Archive status       : " + ("OK" if behind <= 2 else f"PROBLEM: latest day is {behind} days old"))
+        import fcntl
+        running = False
+        with open(RAW_DB.with_suffix(".lock"), "w") as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                running = True
+        if behind <= 2:
+            print("Archive status       : OK")
+        elif running:
+            print(f"Archive status       : catching up (fetch running; latest day {behind} days old)")
+        else:
+            print(f"Archive status       : PROBLEM: latest day is {behind} days old and no fetch is running")
 
     last = meta.get("last_success_utc")
     if last:

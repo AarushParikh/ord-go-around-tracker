@@ -44,6 +44,16 @@ INSTANCES = ["prod-0", "prod-1", "staging-0"]
 BOX = {"lamin": 41.80, "lomin": -88.10, "lamax": 42.10, "lomax": -87.70}
 MAX_ALT_FT = 15_000  # higher than this is cruising traffic, irrelevant for go-arounds
 
+# Speed-up: before fully decoding an aircraft's file, check whether its text even
+# contains a latitude AND a longitude in the ORD box's range. About 98% of
+# aircraft never come near Chicago, so most files are skipped after this cheap test.
+LAT_PREFIXES = (b"41.8", b"41.9", b"42.0", b"42.1")
+LON_PREFIXES = (b"-87.7", b"-87.8", b"-87.9", b"-88.0", b"-88.1")
+
+
+def might_be_near_ord(text: bytes) -> bool:
+    return any(p in text for p in LAT_PREFIXES) and any(p in text for p in LON_PREFIXES)
+
 FT_TO_M = 0.3048
 KT_TO_MS = 0.514444
 FPM_TO_MS = 0.00508
@@ -181,9 +191,12 @@ def fetch_day(day: date, conn) -> dict:
             n_files += 1
             raw = tf.extractfile(member).read()
             try:
-                trace = json.loads(gzip.decompress(raw))
+                text = gzip.decompress(raw)
             except OSError:  # some files aren't compressed
-                trace = json.loads(raw)
+                text = raw
+            if not might_be_near_ord(text):
+                continue
+            trace = json.loads(text)
             rows = trace_rows(trace)
             if rows:
                 n_aircraft += 1
