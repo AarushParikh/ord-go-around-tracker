@@ -1,0 +1,18 @@
+# Secrets: NEVER commit these
+credentials.json
+.env
+
+# Raw collector database (large; lives on the VM and in backups)
+data/raw*.db
+
+# Generated fake data (anyone can rebuild it with make_demo_data.py)
+data/demo.db
+
+# Python / OS clutter
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
+
+# Collector logs
+logs/
