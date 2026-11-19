@@ -300,7 +300,17 @@ def save_day(conn, day, events, arrivals, tracks):
 
 
 def days_in_raw(raw_path: Path) -> list[date]:
+    """Days that are complete in raw.db.
+
+    adsb.lol days count only once fetch_adsblol.py has marked them done, so a day
+    that is still downloading is never processed half-finished. (For data from
+    the live OpenSky collector, every day before today counts.)
+    """
     with sqlite3.connect(raw_path) as conn:
+        done = [k.removeprefix("adsblol_done_") for (k,) in conn.execute(
+            "SELECT key FROM collector_meta WHERE key LIKE 'adsblol_done_%'")]
+        if done:
+            return sorted(date.fromisoformat(d) for d in done)
         lo, hi = conn.execute("SELECT MIN(time_position), MAX(time_position) FROM states").fetchone()
     if lo is None:
         return []
