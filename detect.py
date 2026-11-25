@@ -27,6 +27,7 @@ Usage:
 """
 
 import argparse
+import fcntl
 import math
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
@@ -399,6 +400,16 @@ def main():
 
     if args.apply_verification:
         apply_verification(args.apply_verification)
+        return
+
+    # Only one detection run at a time (e.g. a long backfill and the daily timer).
+    # A second copy exits quietly, so the daily run moves on to weather/classify.
+    config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    lock = open(config.DATA_DIR / "detect.lock", "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print("Another detection run is in progress; skipping.")
         return
 
     conn = db.connect(config.TRACKER_DB)

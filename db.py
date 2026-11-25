@@ -93,7 +93,9 @@ CREATE TABLE IF NOT EXISTS arrivals_hourly (
 def connect(path: Path) -> sqlite3.Connection:
     """Open the database and create any missing tables."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
+    # Wait up to 60 s if another script is writing (e.g. detection while the
+    # daily run adds weather), instead of failing with "database is locked".
+    conn = sqlite3.connect(path, timeout=60)
     conn.executescript(SCHEMA)
     # Databases created before a column was added get it here.
     cols = {r[1] for r in conn.execute("PRAGMA table_info(event_weather)")}
