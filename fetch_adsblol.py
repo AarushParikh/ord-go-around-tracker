@@ -33,6 +33,7 @@ import tarfile
 import time
 import urllib.error
 import urllib.request
+import zlib
 from datetime import date, datetime, timedelta, timezone
 
 from collector import LOG_FILE, RAW_DB, open_db, set_meta
@@ -49,6 +50,22 @@ MAX_ALT_FT = 15_000  # higher than this is cruising traffic, irrelevant for go-a
 # aircraft never come near Chicago, so most files are skipped after this cheap test.
 LAT_PREFIXES = (b"41.8", b"41.9", b"42.0", b"42.1")
 LON_PREFIXES = (b"-87.7", b"-87.8", b"-87.9", b"-88.0", b"-88.1")
+
+
+# A normal aircraft's daily file is ~0.1-5 MB unzipped. Rarely, a faulty
+# transponder produces a monster (one on 2026-10-17 unzips to 335 MB), which
+# would exhaust the VM's 1 GB of memory. Such files are skipped and logged.
+MAX_UNZIPPED_BYTES = 50_000_000
+
+
+def unzip_limited(raw: bytes) -> bytes | None:
+    """Unzip an aircraft file, or return None if it would exceed MAX_UNZIPPED_BYTES."""
+    try:
+        d = zlib.decompressobj(16 + zlib.MAX_WBITS)  # 16+ = gzip format
+        text = d.decompress(raw, MAX_UNZIPPED_BYTES)
+        return None if d.unconsumed_tail else text
+    except zlib.error:  # some files aren't compressed at all
+        return raw if len(raw) <= MAX_UNZIPPED_BYTES else None
 
 
 def might_be_near_ord(text: bytes) -> bool:
@@ -212,10 +229,10 @@ def fetch_day(day: date, conn) -> dict:
                 continue
             n_files += 1
             raw = tf.extractfile(member).read()
-            try:
-                text = gzip.decompress(raw)
-            except OSError:  # some files aren't compressed
-                text = raw
+            text = unzip_limited(raw)
+            if text is None:
+                log.warning("  skipped oversized file %s (%.1f MB compressed)", member.name, len(raw) / 1e6)
+                continue
             if not might_be_near_ord(text):
                 continue
             trace = json.loads(text)
