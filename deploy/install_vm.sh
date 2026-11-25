@@ -1,9 +1,12 @@
 #!/bin/bash
-# install_vm.sh — Schedule fetch_adsblol.py to run every day on the VM.
+# install_vm.sh — Schedule the daily pipeline on the VM:
+#   1. fetch_adsblol.py  downloads every missing day of ORD positions
+#   2. detect.py         finds go-arounds and counts arrivals in every new day
 #
 # systemd (Linux's service manager) runs it daily at 10:00 UTC (4 am Chicago),
-# after adsb.lol has published the previous day. Each run fetches EVERY missing
-# day, so if the VM was off or a download failed, the next run catches up.
+# after adsb.lol has published the previous day. Each step processes EVERY
+# missing day, so if the VM was off or a step failed, the next run catches up.
+# (detect.py needs deploy/setup_detect_vm.sh to have been run once.)
 # "Persistent=true" means a run missed while the VM was off happens at boot.
 #
 # Run once from the repo folder:   bash deploy/install_vm.sh
@@ -12,7 +15,7 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 sudo tee /etc/systemd/system/ord-fetch.service > /dev/null <<UNIT
 [Unit]
-Description=ORD Go-Around Tracker - fetch adsb.lol daily archive
+Description=ORD Go-Around Tracker - fetch adsb.lol archive, then detect go-arounds
 After=network-online.target
 Wants=network-online.target
 
@@ -21,6 +24,7 @@ Type=oneshot
 User=$USER
 WorkingDirectory=$REPO_DIR
 ExecStart=/usr/bin/python3 $REPO_DIR/fetch_adsblol.py --catch-up
+ExecStart=/bin/sh -c '/usr/bin/python3 $REPO_DIR/detect.py >> $REPO_DIR/logs/detect.log 2>&1'
 UNIT
 
 sudo tee /etc/systemd/system/ord-fetch.timer > /dev/null <<UNIT
