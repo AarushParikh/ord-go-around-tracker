@@ -6,10 +6,29 @@ rule that fires is collected, and the strongest one becomes the likely
 factor. Nothing here is an official cause: ATC and the crew know the real
 reason, and we only see the trajectory and the weather.
 
-!!! DRAFT THRESHOLDS !!!
-The numbers below are placeholders to make the pipeline run end to end.
-They are finalized in Block 6, and every one needs a reason you can explain
-in an interview (and in the README) before the results are shown publicly.
+Thresholds (version 1.0) and where each comes from:
+  * Windshear: WS/LLWS in the METAR. A direct report. (US windshear alerts
+    usually reach pilots via ATC/ATIS instead, so this rarely fires.)
+  * Runway occupied: aircraft ahead touched down 0-90 s before the go-around
+    and hadn't slowed below 30 kt (measured in detect.py). FAA's reduced
+    separation on final assumes average runway occupancy of 50 s or less
+    (FAA Notice JO 7210.765), so 90 s is a generous margin.
+  * Insufficient spacing: under 2.5 nm behind the aircraft ahead. 2.5 nm is
+    the minimum FAA allows even under reduced separation on final, within
+    10 nm of the runway (FAA Notice JO 7210.765).
+  * Gusty wind / crosswind: METARs report gusts only when peaks and lulls
+    differ by 10 kt or more (Federal Meteorological Handbook No. 1, 5.4.4).
+    Gust spread of 15+ kt or crosswind of 20+ kt -> medium; any gust -> low.
+    (15 and 20 kt are this project's judgment, not regulations.)
+  * Low visibility / ceiling: ceiling under 500 ft or visibility under 1 mile,
+    i.e. near instrument-landing minimums. Low confidence: ORD has
+    lower-minimum approaches for many aircraft.
+  * High-energy (unstabilized) approach: industry criteria (Flight Safety
+    Foundation) require a stabilized approach by 1,000 ft above the airport,
+    with speed no more than Vref + 20 kt and descent no more than 1,000 ft/min.
+    We flag: estimated airspeed (groundspeed + headwind) over 170 kt, or descent
+    steeper than 1,000 ft/min, below 1,000 ft. Low confidence: we see neither
+    the real airspeed nor the aircraft's Vref.
 
 Run on the real database:   python classify.py
 Run on the demo database:   python classify.py --demo
@@ -23,24 +42,23 @@ import pandas as pd
 import config
 import db
 
-RULES_VERSION = "draft-0.1"
+RULES_VERSION = "1.0"
 
-# --- DRAFT thresholds (see note above) -------------------------------------
-GUST_KT_MEDIUM = 25          # gusts at/above this -> medium confidence
-GUST_KT_LOW = 18             # gusts at/above this -> low confidence
-CROSSWIND_KT = 20            # steady crosswind component at/above this
-LOW_VIS_SM = 1.0             # visibility below this (statute miles)
-LOW_CEILING_FT = 500         # ceiling below this (feet above the airport)
-MIN_SPACING_NM = 2.5         # spacing to the arrival ahead below this
-HIGH_ENERGY_GS_KT = 170      # groundspeed above this ...
-HIGH_ENERGY_MAX_AGL_FT = 1000  # ... while lower than this above the airport
+GUST_SPREAD_MEDIUM_KT = 15     # gust minus steady wind, at/above this -> medium
+CROSSWIND_KT = 20              # steady crosswind component at/above this -> medium
+LOW_VIS_SM = 1.0               # visibility below this (statute miles)
+LOW_CEILING_FT = 500           # ceiling below this (feet above the airport)
+MIN_SPACING_NM = 2.5           # spacing to the arrival ahead below this
+STABILIZED_GATE_FT = 1000      # height above the field where approaches must be stable
+HIGH_ENERGY_AIRSPEED_KT = 170  # estimated airspeed above this (about Vref + 20 for most airliners)
+MAX_SINK_FPM = 1000            # descent rate above this
 
 # Higher number = stronger evidence. Used to pick the primary factor.
 CONFIDENCE_RANK = {"high": 3, "medium": 2, "low": 1}
 
 
-def crosswind_component(wind_dir_deg, wind_kt, runway) -> float | None:
-    """Crosswind (knots) on a runway. None if wind direction is unknown.
+def wind_components(wind_dir_deg, wind_kt, runway):
+    """(headwind, crosswind) in knots for a runway; None if wind is unknown/variable.
 
     Simplification to mention in the README: METAR wind is TRUE direction and
     runway numbers are MAGNETIC; at ORD the difference is only a few degrees.
@@ -48,7 +66,7 @@ def crosswind_component(wind_dir_deg, wind_kt, runway) -> float | None:
     if wind_dir_deg is None or wind_kt is None or pd.isna(wind_dir_deg) or pd.isna(wind_kt):
         return None
     angle = math.radians(wind_dir_deg - config.runway_heading_deg(runway))
-    return abs(wind_kt * math.sin(angle))
+    return wind_kt * math.cos(angle), abs(wind_kt * math.sin(angle))
 
 
 def present(value) -> bool:
@@ -65,8 +83,8 @@ def evaluate_rules(ev: dict) -> list[tuple[str, str, str]]:
         fired.append(("windshear_reported", "high",
                       f"METAR reports low-level windshear ({ev.get('metar_raw', '')[:60]}...)."))
 
-    # 2. Arrival ahead still on/near the runway. Capped at MEDIUM because
-    #    positions are only sampled every ~30 s and ground coverage is patchy.
+    # 2. Arrival ahead still on the runway. Capped at MEDIUM: inferred from its
+    #    touchdown time and speed; there is no data on when it left the runway.
     if ev.get("prev_on_runway") == 1:
         fired.append(("runway_occupied", "medium",
                       f"Preceding arrival {ev.get('prev_callsign') or '(unknown)'} appears to be "
@@ -80,18 +98,19 @@ def evaluate_rules(ev: dict) -> list[tuple[str, str, str]]:
                       f"({ev.get('prev_spacing_s', 0):.0f} s)."))
 
     # 4. Gusts or crosswind.
-    gust = ev.get("gust_kt")
-    xwind = crosswind_component(ev.get("wind_dir_deg"), ev.get("wind_kt"), ev["runway"])
-    if present(gust) and gust >= GUST_KT_MEDIUM:
-        fired.append(("gusty_wind_or_crosswind", "medium", f"Gusts to {gust:.0f} kt."))
-    elif xwind is not None and xwind >= CROSSWIND_KT:
+    gust, wind = ev.get("gust_kt"), ev.get("wind_kt")
+    comps = wind_components(ev.get("wind_dir_deg"), wind, ev["runway"])
+    spread = gust - wind if present(gust) and present(wind) else None
+    if spread is not None and spread >= GUST_SPREAD_MEDIUM_KT:
         fired.append(("gusty_wind_or_crosswind", "medium",
-                      f"Crosswind about {xwind:.0f} kt on runway {ev['runway']}."))
-    elif present(gust) and gust >= GUST_KT_LOW:
-        fired.append(("gusty_wind_or_crosswind", "low", f"Gusts to {gust:.0f} kt."))
+                      f"Wind {wind:.0f} kt gusting {gust:.0f} kt ({spread:.0f} kt spread)."))
+    elif comps is not None and comps[1] >= CROSSWIND_KT:
+        fired.append(("gusty_wind_or_crosswind", "medium",
+                      f"Crosswind about {comps[1]:.0f} kt on runway {ev['runway']}."))
+    elif present(gust):
+        fired.append(("gusty_wind_or_crosswind", "low", f"Gusts to {gust:.0f} kt reported."))
 
-    # 5. Low visibility or ceiling. LOW confidence: it suggests the crew may
-    #    not have seen the runway at minimums, but we cannot confirm that.
+    # 5. Low visibility or ceiling (near instrument minimums).
     vis, ceiling = ev.get("visibility_sm"), ev.get("ceiling_ft")
     if (present(vis) and vis < LOW_VIS_SM) or (present(ceiling) and ceiling < LOW_CEILING_FT):
         vis_txt = f"{vis:g} SM" if present(vis) else "n/a"
@@ -99,16 +118,20 @@ def evaluate_rules(ev: dict) -> list[tuple[str, str, str]]:
         fired.append(("low_visibility_or_ceiling", "low",
                       f"Visibility {vis_txt}, ceiling {ceil_txt}."))
 
-    # 6. Fast and low at the go-around point. LOW confidence: groundspeed
-    #    includes wind, so a strong tailwind can look like a fast approach.
-    gs = ev.get("ga_groundspeed_kt")
-    # Prefer the altimeter-corrected altitude from weather.py when available.
+    # 6. Unstabilized (high-energy) approach below the 1,000 ft gate.
     alt = ev.get("ga_alt_true_ft", ev.get("ga_alt_ft"))
-    if present(gs) and present(alt):
-        agl = alt - config.AIRPORT_ELEV_FT
-        if gs > HIGH_ENERGY_GS_KT and agl < HIGH_ENERGY_MAX_AGL_FT:
+    if present(alt) and alt - config.AIRPORT_ELEV_FT < STABILIZED_GATE_FT:
+        gs, sink = ev.get("ga_groundspeed_kt"), ev.get("max_sink_fpm")
+        headwind = comps[0] if comps is not None else 0.0
+        airspeed = gs + headwind if present(gs) else None
+        reasons = []
+        if airspeed is not None and airspeed > HIGH_ENERGY_AIRSPEED_KT:
+            reasons.append(f"estimated airspeed {airspeed:.0f} kt (groundspeed {gs:.0f} + headwind {headwind:.0f})")
+        if present(sink) and sink > MAX_SINK_FPM:
+            reasons.append(f"descending {sink:,.0f} ft/min")
+        if reasons:
             fired.append(("high_energy_approach", "low",
-                          f"{gs:.0f} kt groundspeed at about {agl:.0f} ft above the airport."))
+                          "Below 1,000 ft: " + " and ".join(reasons) + "."))
 
     return fired
 

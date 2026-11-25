@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS events (
     prev_spacing_s      REAL,
     prev_on_runway      INTEGER,           -- 1 yes, 0 no, NULL unknown
     aircraft_type       TEXT,              -- phase 2 (OpenSky aircraft database)
+    max_sink_fpm        REAL,              -- steepest descent below 1,000 ft above field, last 60 s before the go-around
     verified            INTEGER            -- manual check: 1 real, 0 false alarm, NULL unchecked
 );
 
@@ -98,6 +99,9 @@ def connect(path: Path) -> sqlite3.Connection:
     cols = {r[1] for r in conn.execute("PRAGMA table_info(event_weather)")}
     if "altimeter_inhg" not in cols:
         conn.execute("ALTER TABLE event_weather ADD COLUMN altimeter_inhg REAL")
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(events)")}
+    if "max_sink_fpm" not in cols:
+        conn.execute("ALTER TABLE events ADD COLUMN max_sink_fpm REAL")
     return conn
 
 

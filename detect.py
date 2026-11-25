@@ -159,6 +159,12 @@ def analyse_go_around(flight, segment, landing):
         "landing_time_utc": None, "minutes_to_landing": None, "landing_runway": None,
     }
     event["airline_icao"] = airlines.airline_code(event["callsign"])
+    # Steepest descent in the last 60 s before the go-around while below 1,000 ft
+    # above the field (stabilized-approach criterion: no more than 1,000 ft/min).
+    last_min = window[(window.timestamp >= ga_time - timedelta(seconds=60))
+                      & (window.altitude < config.AIRPORT_ELEV_FT + 1000) & ~window.onground]
+    sink = -last_min.vertical_rate.min() if last_min.vertical_rate.notna().any() else None
+    event["max_sink_fpm"] = round(float(sink)) if sink is not None and sink > 0 else None
     if landing:
         event["landing_runway"], event["landing_time_utc"] = landing
         event["minutes_to_landing"] = round((landing[1] - ga_time).total_seconds() / 60, 1)
@@ -275,19 +281,19 @@ def save_day(conn, day, events, arrivals, tracks):
         conn.execute("""
             INSERT INTO events (event_id, icao24, callsign, airline_icao, go_around_time_utc, runway,
                 ga_alt_ft, ga_groundspeed_kt, landing_time_utc, minutes_to_landing, landing_runway,
-                prev_callsign, prev_spacing_nm, prev_spacing_s, prev_on_runway)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                prev_callsign, prev_spacing_nm, prev_spacing_s, prev_on_runway, max_sink_fpm)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(event_id) DO UPDATE SET
                 callsign=excluded.callsign, airline_icao=excluded.airline_icao, runway=excluded.runway,
                 ga_alt_ft=excluded.ga_alt_ft, ga_groundspeed_kt=excluded.ga_groundspeed_kt,
                 landing_time_utc=excluded.landing_time_utc, minutes_to_landing=excluded.minutes_to_landing,
                 landing_runway=excluded.landing_runway, prev_callsign=excluded.prev_callsign,
                 prev_spacing_nm=excluded.prev_spacing_nm, prev_spacing_s=excluded.prev_spacing_s,
-                prev_on_runway=excluded.prev_on_runway""",
+                prev_on_runway=excluded.prev_on_runway, max_sink_fpm=excluded.max_sink_fpm""",
             (e["event_id"], e["icao24"], e["callsign"], e["airline_icao"], iso(e["go_around_time_utc"]),
              e["runway"], e["ga_alt_ft"], e["ga_groundspeed_kt"], iso(e["landing_time_utc"]),
              e["minutes_to_landing"], e["landing_runway"], e["prev_callsign"], e["prev_spacing_nm"],
-             e["prev_spacing_s"], e["prev_on_runway"]))
+             e["prev_spacing_s"], e["prev_on_runway"], e["max_sink_fpm"]))
         conn.execute("DELETE FROM event_tracks WHERE event_id = ?", (e["event_id"],))
     conn.executemany("INSERT INTO event_tracks VALUES (?,?,?,?,?,?)", tracks)
 

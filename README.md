@@ -53,14 +53,20 @@ Detection precision: **TBD**, measured by manually reviewing ~30 events
 `python detect.py --apply-verification data/verify/verify.csv`).
 
 ## How factors are inferred
-`classify.py` checks the evidence in priority order (windshear reported → runway
-occupied → insufficient spacing → gusty/crosswind → low visibility/ceiling →
-high-energy approach). The strongest rule that fires becomes the likely factor,
-the next one the secondary factor. If none fire, the event is `insufficient_data`.
-That's expected for many events.
+`classify.py` (rules version 1.0) checks each piece of evidence. The strongest rule that fires
+becomes the **likely contributing factor (rule-inferred)**, the next one the secondary factor.
+If none fire, the event is `insufficient_data`, which is expected for many events.
+
+| Factor | Rule | Confidence | Basis |
+|---|---|---|---|
+| Windshear reported | `WS`/`LLWS` in the METAR | high | Direct report (rare: US alerts usually go via ATC/ATIS) |
+| Runway occupied | Aircraft ahead touched down 0–90 s before and hadn't slowed below 30 kt | medium | FAA reduced separation assumes ≤ 50 s average runway occupancy (Notice JO 7210.765) |
+| Insufficient spacing | < 2.5 nm behind the aircraft ahead | medium | FAA minimum even under reduced separation on final (Notice JO 7210.765) |
+| Gusty wind / crosswind | Gust spread ≥ 15 kt or crosswind ≥ 20 kt (any gust: low) | medium / low | METAR gusts mean ≥ 10 kt peak-to-lull (FMH-1 §5.4.4); 15/20 kt are this project's judgment |
+| Low visibility / ceiling | Ceiling < 500 ft or visibility < 1 SM | low | Near instrument-landing minimums |
+| High-energy approach | Below 1,000 ft: est. airspeed (groundspeed + headwind) > 170 kt, or descent > 1,000 ft/min | low | Flight Safety Foundation stabilized-approach criteria (Vref+20 kt, ≤ 1,000 ft/min by 1,000 ft) |
 
 These are **not official causes**. Only ATC and the crew know why a go-around was flown.
-Thresholds are drafts until justified (see the top of `classify.py`).
 
 ## Known limitations
 - Coverage depends on adsb.lol's volunteer receivers; near ORD it is dense (~1 s between points), but gaps are possible.
