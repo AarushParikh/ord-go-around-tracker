@@ -24,7 +24,7 @@ When `data/tracker.db` (real data) exists, the dashboard uses it automatically.
 |---|---|---|
 | 1 | `fetch_adsblol.py` | Each day, streams adsb.lol's public flight-history archive and keeps every position inside a box around ORD below 15,000 ft (about 1 point per second near the airport) in SQLite (`data/raw.db`). Runs daily on a free Google Cloud VM (`deploy/install_vm.sh`); `status.py` is the health check. `collector.py` (live OpenSky polling) is kept for running at home, since OpenSky blocks cloud servers. |
 | 2 | `detect.py` | Rebuilds flights and detects go-arounds with the `traffic` library; counts arrivals for rates. *(to build)* |
-| 3 | `weather.py` | Attaches the KORD METAR in effect at each go-around (Iowa Environmental Mesonet). *(to build)* |
+| 3 | `weather.py` | Attaches the KORD METAR/SPECI in effect at each go-around (latest report at or before it, max 90 min old) from Iowa Environmental Mesonet, and uses the altimeter setting to correct ADS-B pressure altitudes. |
 | 4 | `classify.py` | Rule-based likely contributing factor + confidence + evidence. *(draft thresholds)* |
 | 5 | `app.py` | Dashboard: filters, rates, breakdowns, map, event detail. |
 
@@ -67,7 +67,7 @@ Thresholds are drafts until justified (see the top of `classify.py`).
 - Positions are stored at 1-second resolution; "runway occupied" stays capped at medium confidence until checked against real events.
 - Missed go-arounds can't be measured (no public ground truth); only precision is measured.
 - Groundspeed includes wind, so "high-energy approach" is a weak signal.
-- ADS-B barometric altitude is pressure altitude (29.92 inHg), not corrected for the day's pressure, so go-around heights can be off by a few hundred feet until corrected with the METAR altimeter setting.
+- ADS-B barometric altitude is pressure altitude (29.92 inHg). It is corrected with the METAR altimeter setting (about 1,000 ft per inHg), which is a standard approximation, not an exact conversion.
 - "Runway occupied" is inferred: the aircraft ahead touched down 0-90 s before the go-around and hadn't slowed below 30 kt. There is no runway-exit data.
 - METAR wind is true north and runway numbers are magnetic (a few degrees apart at ORD).
 - Sample sizes per airline/runway are small; airlines under 500 arrivals are hidden from rate charts.

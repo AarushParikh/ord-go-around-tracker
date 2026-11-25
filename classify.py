@@ -101,7 +101,9 @@ def evaluate_rules(ev: dict) -> list[tuple[str, str, str]]:
 
     # 6. Fast and low at the go-around point. LOW confidence: groundspeed
     #    includes wind, so a strong tailwind can look like a fast approach.
-    gs, alt = ev.get("ga_groundspeed_kt"), ev.get("ga_alt_ft")
+    gs = ev.get("ga_groundspeed_kt")
+    # Prefer the altimeter-corrected altitude from weather.py when available.
+    alt = ev.get("ga_alt_true_ft", ev.get("ga_alt_ft"))
     if present(gs) and present(alt):
         agl = alt - config.AIRPORT_ELEV_FT
         if gs > HIGH_ENERGY_GS_KT and agl < HIGH_ENERGY_MAX_AGL_FT:

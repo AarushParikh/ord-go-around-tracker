@@ -66,7 +66,8 @@ CREATE TABLE IF NOT EXISTS event_weather (
     visibility_sm REAL,
     ceiling_ft    REAL,                    -- lowest broken/overcast layer, AGL; NULL = none
     wx_codes      TEXT,                    -- e.g. '-RA BR'
-    llws          INTEGER                  -- 1 if low-level windshear was reported
+    llws          INTEGER,                 -- 1 if low-level windshear was reported
+    altimeter_inhg REAL                    -- altimeter setting, used to correct ADS-B altitudes
 );
 
 CREATE TABLE IF NOT EXISTS classifications (
@@ -93,6 +94,10 @@ def connect(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
     conn.executescript(SCHEMA)
+    # Databases created before a column was added get it here.
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(event_weather)")}
+    if "altimeter_inhg" not in cols:
+        conn.execute("ALTER TABLE event_weather ADD COLUMN altimeter_inhg REAL")
     return conn
 
 
@@ -116,7 +121,7 @@ def load_events(path: Path) -> pd.DataFrame:
     query = """
         SELECT e.*,
                w.metar_time_utc, w.metar_raw, w.wind_dir_deg, w.wind_kt, w.gust_kt,
-               w.visibility_sm, w.ceiling_ft, w.wx_codes, w.llws,
+               w.visibility_sm, w.ceiling_ft, w.wx_codes, w.llws, w.altimeter_inhg,
                c.likely_factor, c.secondary_factor, c.confidence, c.evidence
         FROM events e
         LEFT JOIN event_weather   w USING (event_id)
@@ -126,6 +131,11 @@ def load_events(path: Path) -> pd.DataFrame:
         df = pd.read_sql_query(query, conn)
     for col in ["go_around_time_utc", "landing_time_utc", "metar_time_utc"]:
         df[col] = pd.to_datetime(df[col], utc=True, format="ISO8601")
+    # ADS-B altitude is pressure altitude (altimeter at 29.92). Correct it with the
+    # day's altimeter setting when we have one: ~1,000 ft per inch of mercury.
+    correction = (df["altimeter_inhg"] - 29.92) * 1000
+    df["ga_alt_true_ft"] = df["ga_alt_ft"] + correction.fillna(0)
+    df["ga_alt_corrected"] = df["altimeter_inhg"].notna()
     return df
 
 

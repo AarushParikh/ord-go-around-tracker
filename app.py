@@ -349,8 +349,10 @@ with tab_detail:
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Callsign", e["callsign"])
     c2.metric("Runway", e["runway"])
-    c3.metric("Altitude at go-around",
-              fmt(e["ga_alt_ft"] - config.AIRPORT_ELEV_FT, "{:,.0f} ft AGL"))
+    c3.metric("Height at go-around",
+              fmt(e["ga_alt_true_ft"] - config.AIRPORT_ELEV_FT, "{:,.0f} ft above field"),
+              help="Lowest point of the aborted approach. Corrected with the METAR altimeter setting "
+                   "when available; otherwise uncorrected pressure altitude (can be off by a few hundred ft).")
     c4.metric("Groundspeed", fmt(e["ga_groundspeed_kt"], "{:.0f} kt"))
 
     st.markdown(f"**{e['airline']}** ({e['airline_category']}) · go-around at "

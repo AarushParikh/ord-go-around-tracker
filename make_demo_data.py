@@ -166,10 +166,10 @@ def main(days: int):
             )
             metar_t = t.replace(minute=51, second=0) - (timedelta(hours=1) if t.minute < 51 else timedelta())
             conn.execute(
-                "INSERT INTO event_weather VALUES (?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO event_weather VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (event_id, metar_t.isoformat(),
                  metar_text(metar_t, wind_dir, wind_kt, gust, vis, ceiling, wx, llws_day),
-                 wind_dir, wind_kt, gust, vis, ceiling, wx, llws_day),
+                 wind_dir, wind_kt, gust, vis, ceiling, wx, llws_day, 29.92),
             )
             n_events += 1
 
