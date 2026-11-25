@@ -1,0 +1,6 @@
+# Data pipeline (fetch, detect, weather, classify). Installed on the VM by
+# deploy/setup_detect_vm.sh; install on a laptop with:
+#   pip install -r requirements.txt -r requirements-pipeline.txt
+pandas>=2.2,<3     # traffic doesn't support pandas 3 yet
+traffic>=2.13
+matplotlib>=3.8    # verification plots

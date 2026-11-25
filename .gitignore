@@ -23,3 +23,6 @@ data/verify/*.png
 
 # Temporary archive downloads
 data/download_*/
+
+# Cached weather downloads (weather.py re-downloads as needed)
+data/metar/

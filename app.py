@@ -100,8 +100,10 @@ is_demo = meta.get("is_demo") == "1"
 # Header
 # ---------------------------------------------------------------------------
 st.title("✈️ ORD Go-Around Tracker")
-st.caption("Go-arounds at Chicago O'Hare (KORD) detected from public ADS-B data (OpenSky Network), "
-           "with the weather in effect and a rule-inferred likely contributing factor.")
+st.caption("Go-arounds at Chicago O'Hare (KORD) detected from public ADS-B data, with the weather in "
+           "effect and a rule-inferred likely contributing factor. Flight data © "
+           "[adsb.lol](https://adsb.lol) contributors, [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/); "
+           "weather: Iowa Environmental Mesonet.")
 if is_demo:
     st.error("**DEMO DATA.** Everything on this page is randomly generated to preview the dashboard. "
              "None of it is real.", icon="⚠️")
