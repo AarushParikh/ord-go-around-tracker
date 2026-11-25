@@ -70,6 +70,9 @@ CREATE TABLE IF NOT EXISTS states (
     PRIMARY KEY (icao24, time_position, source)
 );
 
+-- Lets detect.py load one day without reading the whole table.
+CREATE INDEX IF NOT EXISTS idx_states_time ON states (time_position);
+
 CREATE TABLE IF NOT EXISTS collector_meta (
     key   TEXT PRIMARY KEY,
     value TEXT

@@ -32,6 +32,7 @@ import sqlite3
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from traffic.core import Traffic
 from traffic.data import airports
@@ -112,8 +113,11 @@ def load_positions(raw_path: Path, start: datetime, end: datetime) -> pd.DataFra
 
     # Keep only aircraft that were airborne, low, and close to ORD at some point
     # (drops ground vehicles and traffic just passing overhead).
-    near = df.apply(lambda r: distance_nm(r.latitude, r.longitude, config.AIRPORT_LAT,
-                                          config.AIRPORT_LON) < ARRIVAL_CHECK_RADIUS_NM, axis=1)
+    # Distance from ORD for every row at once (numpy), instead of row by row.
+    lat1, lon1 = np.radians(df.latitude), np.radians(df.longitude)
+    lat2, lon2 = math.radians(config.AIRPORT_LAT), math.radians(config.AIRPORT_LON)
+    a = np.sin((lat2 - lat1) / 2) ** 2 + np.cos(lat1) * math.cos(lat2) * np.sin((lon2 - lon1) / 2) ** 2
+    near = 2 * 3440.065 * np.arcsin(np.sqrt(a)) < ARRIVAL_CHECK_RADIUS_NM
     candidate = (~df.onground) & near & (df.altitude < ARRIVAL_CHECK_MAX_ALT_FT)
     keep = df.loc[candidate, "icao24"].unique()
     return df[df.icao24.isin(keep)]
